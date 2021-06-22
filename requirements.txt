@@ -1,0 +1,7 @@
+ldap
+LDIFWriter
+hashlib
+ConfigParser
+itertools
+optparse
+datetime
