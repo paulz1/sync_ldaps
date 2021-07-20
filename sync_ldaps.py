@@ -619,9 +619,12 @@ elif options.fix and options.hash :
     res = sync_account(ldap_source,ldap_dest,options.hash)
     print(f"Changed : {options.hash}")
 else :
-    counter, accounts_to_add = show_accounts_to_add(dict_source,dict_dest, counter)
+    counter, accounts_to_add = show_accounts_to_add(dict_source,dict_dest)
+    if compare_verbose :
+        print(f"Number of accounts to add: {counter}")
     print_info(accounts_to_add,options.show_type)
-    counter, accounts_to_modify = show_accounts_to_modify(dict_source,dict_dest, compare_verbose, counter)
+    counter, accounts_to_modify = show_accounts_to_modify(dict_source,dict_dest, compare_verbose)
+    if compare_verbose :
+        print(f"Number of accounts to modify: {counter}")    
     print_info(accounts_to_modify,options.show_type)
-
 quit(0)
