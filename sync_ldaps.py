@@ -411,7 +411,7 @@ def save_account(login, basedn, dict_login_info, backup_path="backup_accounts"):
 def delete_account(ldap_info, login, verbose=False) :
     url = ldap_info['url']
     basedn = ldap_info['basedn']
-print
+
     ldap_connect = ldap.initialize(url)
     #Bind to the server and modify
     try:
