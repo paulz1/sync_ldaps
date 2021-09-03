@@ -100,6 +100,22 @@ The format is very simple :
  &nbsp; | --prepare-ldif-for-removed | work only together with "-r", prepare ldif file with remove accounts. This ldif could be used with ldapdelete command
  &nbsp; | --backup_all_before_remove | work only together with "-r", backup account before delete it
  &nbsp; | --confirm_remove_all | work only together with "-r", remove all acounts that not exists in Source
+
+### Options for groups sync
+
+**NB** _groups_basedn_ should be set in config file to use in order to Sync Group could work. 
+
+| Short | Long | Description |
+| --- | --- | --- |
+-g | --groups | activate "groups" mode, show difference between the groups in Source and Dest 
+ &nbsp; | --not_remove_new_members | work only together with "-g", disable searching for the groups where are more members in Dest than in Source
+ &nbsp; | --fix-groups | activate fixing groups differences, if not activated we just simple show differences and exit
+
+#### Some words about "not_remove_new_members".  
+By default we will check (and try to fix if --fix-groups is set) all the differences.  
+But sometimes there are some situations where in new ldap (Dest) there are more members than in the old one (Source). 
+If we don't want that such difference will be fixed we should set --not_remove_new_members. So these differences will 
+not be detected and so will not be fixed. 
  
 ### General options
  

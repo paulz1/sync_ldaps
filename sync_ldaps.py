@@ -11,19 +11,25 @@ import itertools
 from optparse import OptionParser
 from datetime import datetime
 
-#def is_config_file_exist(filename):
-#def get_all_ldap_users(ldap_info) :
-#def get_ldap_user(ldap_mnfo, user_login) :
-#def compare_dicts_in_order(dict1,dict2,verbose=False) :
-#def compare_dicts_in_order(dict1,dict2,verbose=False) :
-#def show_accounts_to_add(dict_source,dict_dest, counter=0) :
-#def show_accounts_to_modify(dict_source,dict_dest, verbose=False, counter=0) :
-#def LDAP_do_operation(ldap_info, dn, ldif, operation) :
-#def sync_account(ldap_source, ldap_dest, hash_string, verbose=True) :
-#def fix_all(accounts_to_fix, ldap_source, ldap_dest,verbose=False) :
-#def print_info(data_dict, output_level=3) :
-#def save_account(login, basedn, dict_login_info, backup_path="backup_accounts"):
-#def delete_account(ldap_info, login, verbose=False) :
+# def is_config_file_exist(filename) :
+# def get_all_ldap_users(ldap_info) :
+# def get_all_ldap_groups(ldap_info) :
+# def get_ldap_user(ldap_info, user_login) :
+# def get_ldap_group(ldap_info, group_name) :
+# def compare_dicts_in_order(dict1,dict2,verbose=False) :
+# def show_accounts_to_add(dict_source,dict_dest, counter=0) :
+# def show_accounts_to_modify(dict_source,dict_dest, verbose=False, counter=0) :
+# def show_groups_differences(dict_source, dict_dest, verbose=False, counter=0, could_remove_members=True) :
+# def compare_groups(group_source, group_dest, verbose=False, could_remove_members=True) :
+# def LDAP_do_operation(ldap_info, dn, ldif, operation) :
+# def sync_account(ldap_source, ldap_dest, hash_string, verbose=True) :
+# def fix_all(accounts_to_fix, ldap_source, ldap_dest,verbose=False) :
+# def print_info(data_dict, output_level=3) :
+# def sync_group(ldap_source, ldap_dest, hash_string, verbose=True) :
+# def fix_all(accounts_to_fix, ldap_source, ldap_dest,verbose=False) :
+# def print_info(data_dict, output_level=3) :
+# def save_account(login, basedn, dict_login_info, backup_path="backup_accounts"):
+# def delete_account(ldap_info, login, verbose=False) :
 
 def is_config_file_exist(filename) :
     """
@@ -108,6 +114,81 @@ def get_all_ldap_users(ldap_info) :
 
     return cur_dict
 
+def get_all_ldap_groups(ldap_info) :
+    """
+    Get all ldap groups from LDAP server indicated by ldap_info
+    groups_basedn should be defined and not empty in ldap_info
+    Return dict with all groups
+    If there is problem to connect to LDAP : stops with exit code 1
+
+    Attention! The values in the dict are the strings (and not bytes-string as returned by python-ldap)
+    This is the difference with "get_ldap_user" function that returns bytes-string.
+
+    """
+    url = ldap_info['url']
+    if not 'groups_basedn' in ldap_info :
+        print(f"No groups_basedn defined in ldap_info for {url}")
+        sys.exit(2)
+    groups_dn = ldap_info['groups_basedn']
+    searchFilter = ldap_info['filter']
+    searchAttribute = []
+
+    ldap_connect = ldap.initialize(url)
+    searchScope = ldap.SCOPE_SUBTREE
+
+    #Bind to the server
+    try:
+        ldap_connect.protocol_version = ldap.VERSION3
+        ldap_connect.set_option(ldap.OPT_REFERRALS, 0)
+        if ('pwd' in ldap_info) and ('bind' in ldap_info) :
+            binddn = ldap_info['bind']
+            ldap_connect.simple_bind_s(binddn, ldap_info['pwd'])
+        else :
+            ldap_connect.simple_bind()
+    except ldap.INVALID_CREDENTIALS:
+      print("Your username or password is incorrect.")
+      sys.exit(1)
+    except ldap.LDAPError as e:
+        print(f"LDAP info : {ldap_info}")
+        if type(e.args) == dict and e.args.has_key('desc'):
+            print(e.args['desc'])
+        else:
+            print(e)
+        sys.exit(1)
+    #End of Bind
+
+    try:
+        ldap_result_id = ldap_connect.search(groups_dn, searchScope, searchFilter, searchAttribute)
+        result_set = []
+
+        cur_dict={}
+        while 1:
+            result_type, result_data = ldap_connect.result(ldap_result_id, 0)
+            if (result_data == []):
+                break
+            else :
+                if result_type == ldap.RES_SEARCH_ENTRY:
+                    result_set.append(result_data)
+
+        for group in result_set :
+            if ('cn' in group[0][1]) :
+                group_name = group[0][1]['cn'][0].decode('utf-8')
+                if group_name in cur_dict :
+                    print(f"Strange things, we already have user with same login: {group_name}")
+                else :
+                    cur_dict[group_name]={}
+                    for key, item in group[0][1].items() :
+                        if len(item) > 1 :
+                            cur_dict[group_name][key]=[ cur_item.decode('utf-8') for cur_item in item ]
+                        else :
+                            cur_dict[group_name][key]=item[0].decode('utf-8')
+    except ldap.LDAPError as e:
+        print("Search problem")
+        print(e)
+    ldap_connect.unbind_s()
+
+    return cur_dict
+
 def get_ldap_user(ldap_info, user_login) :
     """
     Get info about user with uid = user_login from LDAP-server ldap_info
@@ -173,6 +254,75 @@ def get_ldap_user(ldap_info, user_login) :
 
         # print(result_set)
 
+    except ldap.LDAPError as e:
+        print("Search problem")
+        print(e)
+    ldap_connect.unbind_s()
+
+    return cur_dict
+
+def get_ldap_group(ldap_info, group_name) :
+    """
+    Get info about group with cn = group_name from LDAP-server ldap_info
+    Return dict with all info about user
+    If there is problem to connect to LDAP : stops with exit code 1
+
+    Attention! The values in the dict are the bytes-strings
+    This is the difference with "get_all_ldap_groups" function that returns normal string.
+    """
+    url = ldap_info['url']
+    groups_dn = ldap_info['groups_basedn']
+    searchFilter = f"(cn={group_name})"
+    searchAttribute = []
+
+    ldap_connect = ldap.initialize(url)
+    searchScope = ldap.SCOPE_SUBTREE
+
+    #Bind to the server
+    try:
+        ldap_connect.protocol_version = ldap.VERSION3
+        ldap_connect.set_option(ldap.OPT_REFERRALS, 0)
+        if ('pwd' in ldap_info) and ('bind' in ldap_info) :
+            binddn = ldap_info['bind']
+            ldap_connect.simple_bind_s(binddn, ldap_info['pwd'])
+        else :
+            ldap_connect.simple_bind()
+    except ldap.INVALID_CREDENTIALS:
+      print("Your username or password is incorrect.")
+      sys.exit(1)
+    except ldap.LDAPError as e:
+        if type(e.message) == dict and e.message.has_key('desc'):
+            print(e.message['desc'])
+        else:
+            print(e)
+        sys.exit(1)
+    #End of Bind
+
+    try:
+        ldap_result_id = ldap_connect.search(groups_dn, searchScope, searchFilter, searchAttribute)
+        result_set = []
+
+        cur_dict={}
+        while 1:
+            result_type, result_data = ldap_connect.result(ldap_result_id, 0)
+            if (result_data == []):
+                break
+            else :
+                if result_type == ldap.RES_SEARCH_ENTRY:
+                    result_set.append(result_data)
+
+        for group in result_set :
+            if ('cn' in group[0][1]) :
+                group_cn = group[0][1]['cn'][0].decode('utf-8')
+                if group_cn in cur_dict :
+                    print(f"Strange things, we already have group with same name: {group}")
+                else :
+                    cur_dict[group_cn]={}
+                    for key, item in group[0][1].items() :
+                        if len(item) > 1 :
+                            cur_dict[group_cn][key]=item
+                        else :
+                            cur_dict[group_cn][key]=item[0]
     except ldap.LDAPError as e:
         print("Search problem")
         print(e)
@@ -258,6 +408,79 @@ def show_accounts_to_modify(dict_source,dict_dest, verbose=False, counter=0) :
             res_accounts[hash_string] = output_dict
 
     return (counter,res_accounts)
+
+def show_groups_differences(dict_source, dict_dest, verbose=False, counter=0, could_remove_members=True) :
+    output_levels=list(range(3))
+    res_groups={}
+
+    for cur_group in dict_source.keys() :
+        output_dict=dict.fromkeys(output_levels)
+        if cur_group not in dict_dest.keys() :
+            hash_string=f"group_{cur_group}_add"
+            counter+=1
+            hash_sum=hashlib.md5(hash_string.encode('utf-8')).hexdigest()
+            output_dict[0] = f"{hash_sum}"
+            output_dict[1] = f"group {cur_group} does not existe in Dest"
+            output_dict[2] = f"""
+                Source : {dict_source[cur_group]}
+                """
+            res_groups[hash_string] = output_dict
+        else :
+            diff_res, hash_string = compare_groups(dict_source[cur_group],dict_dest[cur_group],verbose, could_remove_members=could_remove_members)
+            if diff_res :
+                counter+=1
+                hash_sum=hashlib.md5(hash_string.encode('utf-8')).hexdigest()
+                output_dict[0] = f"{hash_sum}"
+                output_dict[1] = f"""{diff_res}"""
+                output_dict[2] = f"""
+                    {dict_source[cur_group]}
+                    {dict_dest[cur_group]}
+                    """
+                res_groups[hash_string] = output_dict
+
+    return (counter, res_groups)
+
+def compare_groups(group_source, group_dest, verbose=False, could_remove_members=True) :
+    if verbose :
+        print(f"Compare group {group_dest['cn']}")
+    diff=f"Group {group_dest['cn']} is different in source and dest\n"
+    hash_string=f"group_{group_dest['cn']}_modify"
+    flag_is_different = False
+
+    for key in group_source.keys():
+        if key not in group_dest.keys() :
+            diff+=f"\t attribute {key} does not exist for group {group_dest['cn']} in Dest"
+            hash_string+=f"_{key}"
+            flag_is_different = True
+        else :
+            if type(group_source[key]) is not list :
+                if group_source[key]!=group_dest[key] :
+                    diff+=f"\t For attribute {key} the value is different for Source and Dest for group {group_source['cn']}\n"
+                    diff+=f"\t Source : {group_source[key]}\n"
+                    diff+=f"\t Dest : {group_dest[key]}\n"
+                    hash_string+=f"_{key}"
+                    flag_is_different = True
+            else :
+                if could_remove_members :
+                    if set(group_source[key]).symmetric_difference(group_dest[key]) :
+                        diff+=f"For group {group_source['cn']} this list is defferent for {key}\n"
+                        diff+=f"Source : {group_source[key]}\n"
+                        diff+=f"Dest : {group_dest[key]}\n"
+                        hash_string+=f"_{key}"
+                        flag_is_different = True
+                else :
+                    diff_set = set(group_source[key]) - set(group_dest[key])
+                    if diff_set :
+                        diff+=f"For group {group_source['cn']} this list is defferent for {key}\n"
+                        diff+=f"Source : {group_source[key]}\n"
+                        diff+=f"Dest : {group_dest[key]}\n"
+                        hash_string+=f"_{key}"
+                        flag_is_different = True
+
+    if flag_is_different :
+        return (diff, hash_string)
+
+    return (None, None)
 
 def LDAP_do_operation(ldap_info, dn, ldif, operation) :
     url = ldap_info['url']
@@ -394,6 +617,115 @@ def print_info(data_dict, output_level=3) :
 
     return 0
 
+def sync_group(ldap_source, ldap_dest, hash_string, verbose=True) :
+    """
+    Modify group. Get group name and needed changes from hash
+    Return 0 if group was seccessfully modifed
+    Return 1 (>0) if could not modify
+    """
+
+    changes_info = hash_string.split("_")
+    is_group=changes_info[0]
+    if is_group!="group" :
+        print(f"Something wrong, function sync_group called for hash {hash_string} but it seems that it's not group-modify hash")
+        return 1
+    group = changes_info[1]
+    operation = changes_info[2]
+
+    group_in_source = get_ldap_group(ldap_source, group)
+    if not group_in_source :
+        if verbose :
+            print(f"No such group in source-ldap : {group} (hash = {hash_string})")
+        return 2
+
+    group_in_dest = get_ldap_group(ldap_dest, group)
+
+    if operation == 'add' :
+        if group_in_dest :
+            if verbose :
+                print(f"Operation is add for group {group} (hash = {hash_string}), but he is already exist in dest-ldap")
+            return 3
+
+        attrs={}
+        for key, value in group_in_source[group].items() :
+            attrs[key] = value
+        cur_ldif = modlist.addModlist(attrs)
+        dn = f"cn={group},{ldap_dest['groups_basedn']}"
+        # print(cur_ldif)
+        status = LDAP_do_operation(ldap_dest, dn, cur_ldif, operation)
+
+    elif operation == 'modify' :
+        if not group_in_dest :
+            if verbose :
+                print(f"No such group in dest-ldap: {group} (hash = {hash_string})")
+                print(f'If you want to add group, use "group_<name>_add" operation')
+            return 1
+
+        old={}
+        new={}
+        for field_to_change in changes_info[3:] :
+            if group_in_source[group][field_to_change] != group_in_dest[group][field_to_change] :
+                if type(group_in_dest[group][field_to_change]) is list :
+                    old[field_to_change]=group_in_dest[group][field_to_change]
+                else :
+                    old[field_to_change]=[group_in_dest[group][field_to_change]]
+                if type(group_in_source[group][field_to_change]) is list :
+                    new[field_to_change]=group_in_source[group][field_to_change]
+                else :
+                    new[field_to_change]=[group_in_source[group][field_to_change]]
+            elif verbose :
+                print(f"This field {field_to_change} is already identic in dest and source")
+
+        if new :
+            print(old)
+            cur_ldif = modlist.modifyModlist(old, new)
+            dn = f"cn={group},{ldap_dest['groups_basedn']}"
+            # print(cur_ldif)
+            status = LDAP_do_operation(ldap_dest, dn, cur_ldif, operation)
+        else :
+            status = 1
+    else :
+        print(f"Unknown operation in sync_account function : {operation} (hash_string={hash_string})")
+        return 1
+
+    return status
+
+def fix_all(accounts_to_fix, ldap_source, ldap_dest,verbose=False) :
+    counter=0
+    for cur_hash in accounts_to_fix :
+        if verbose :
+            print(f"Doing {cur_hash}")
+        res = sync_account(ldap_source,ldap_dest,cur_hash)
+        if res > 0 :
+            print(f"For some reason operation {cur_hash} was not succesful.")
+        else :
+            counter+=1
+
+    return counter
+
+def print_info(data_dict, output_level=3) :
+    if (output_level == 0) or ( not data_dict ) :
+        return 0
+
+    # In fact, level 3 and 4 are the same. It changed not here but with verbose flag in compare functions
+    limit_level=output_level - 2
+    if output_level == 4 :
+        limit_level = 1
+    elif output_level == 5 :
+        limit_level = 2
+
+    for key, value in data_dict.items() :
+        print(key)
+        cur_level=0
+        while cur_level <= limit_level :
+            print(f"{value[cur_level]}")
+            cur_level+=1
+        if output_level > 1:
+            print("_______________________________")
+
+    return 0
+
+
 def save_account(login, basedn, dict_login_info, backup_path="backup_accounts"):
     prepared_dict = {}
     for k, v in dict_login_info.items() :
@@ -508,6 +840,23 @@ parser.add_option("-c", "--config",
                   action="store", # optional because action defaults to "store"
                   dest="config_file",
                   help="Config file, if not set use sync_ldaps.conf in current directory",)
+parser.add_option("-g", "--groups",
+                  action="store_true", # optional because action defaults to "store"
+                  dest="groups_sync",
+                  help="Do groups sync (groups_basedn should be defined in config file)",)
+parser.add_option("--not_remove_new_members",
+                  action="store_true", # optional because action defaults to "store"
+                  dest="not_remove_new_members",
+                  default=False,
+                  help="""
+                  Indicate if we do not want to detect/fix groups where are more members in dest than in source.
+                  By default we will detect/fix such groups.
+                  """,)
+parser.add_option("--fix-groups",
+                  action="store_true", # optional because action defaults to "store"
+                  dest="fix_groups",
+                  default=False,
+                  help="Will fix all changes for the groups (add and modify). See also options '--not_remove_new_members'",)
 
 (options, args) = parser.parse_args()
 # END BLOCK: Parsing command line options
@@ -578,6 +927,8 @@ counter=0
 compare_verbose = False
 if options.show_type > 3 :
     compare_verbose = True
+if options.show_type >= 5 :
+    print("Full verbose mode is activated")
 
 # Search for accounts in Dest but not in Source
 # and then exit returning the number of account of such type
@@ -618,6 +969,32 @@ if options.fix_all :
 elif options.fix and options.hash :
     res = sync_account(ldap_source,ldap_dest,options.hash)
     print(f"Changed : {options.hash}")
+elif options.groups_sync :
+    dict_groups_source = get_all_ldap_groups(ldap_source)
+    dict_groups_dest = get_all_ldap_groups(ldap_dest)
+    # import pprint
+    # pp = pprint.PrettyPrinter()
+    # pp.pprint(dict_groups_source)
+    could_remove_members = not options.not_remove_new_members
+    counter, groups_to_modify = show_groups_differences(dict_groups_source,
+                                                        dict_groups_dest,
+                                                        verbose=compare_verbose,
+                                                        counter=0,
+                                                        could_remove_members=could_remove_members)
+    if options.fix_groups :
+        fixed_groups = 0
+        for cur_hash in groups_to_modify :
+            if compare_verbose :
+                print(f"Doing {cur_hash}")
+            res = sync_group(ldap_source, ldap_dest, cur_hash, compare_verbose)
+            if res > 0 :
+                print(f"For some reason operation {cur_hash} was not succesful.")
+            else :
+                fixed_groups+=1
+        if compare_verbose :
+            print(f"{fixed_groups} groups were changed")
+    else :
+        print_info(groups_to_modify, options.show_type)
 else :
     counter, accounts_to_add = show_accounts_to_add(dict_source,dict_dest)
     if compare_verbose :
@@ -625,6 +1002,7 @@ else :
     print_info(accounts_to_add,options.show_type)
     counter, accounts_to_modify = show_accounts_to_modify(dict_source,dict_dest, compare_verbose)
     if compare_verbose :
-        print(f"Number of accounts to modify: {counter}")    
+        print(f"Number of accounts to modify: {counter}")
     print_info(accounts_to_modify,options.show_type)
+
 quit(0)
